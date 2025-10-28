@@ -1,54 +1,59 @@
 pipeline {
-    agent any
+    agent { label 'docker-agent' }   // 👈 your Jenkins agent label here
 
     environment {
-        DOCKERHUB_USER = 'your-dockerhub-username'
-        IMAGE_BACKEND = "${DOCKERHUB_USER}/backend:latest"
-        IMAGE_FRONTEND = "${DOCKERHUB_USER}/frontend:latest"
+        FRONT_IMAGE = "sham9394/frontend"
+        BACK_IMAGE  = "sham9394/backend"
     }
 
     stages {
         stage('Checkout Code') {
             steps {
-                echo "Pulling source code..."
-                checkout scm
+                echo "📥 Cloning code from GitHub..."
+                git branch: 'main', url: 'https://github.com/sham9394/Mock-hackthon.git'
             }
         }
 
         stage('Build Docker Images') {
             steps {
                 script {
-                    echo "Building Docker images..."
-                    sh 'docker build -t $IMAGE_BACKEND ./backend'
-                    sh 'docker build -t $IMAGE_FRONTEND ./frontend'
+                    echo "🐳 Building Frontend Image..."
+                    frontendImage = docker.build("${FRONT_IMAGE}:${BUILD_NUMBER}", "./frontend")
+
+                    echo "🐳 Building Backend Image..."
+                    backendImage = docker.build("${BACK_IMAGE}:${BUILD_NUMBER}", "./backend")
                 }
             }
         }
 
-        stage('Push to DockerHub') {
+        stage('Push Images to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                    sh '''
-                    echo "$PASS" | docker login -u "$USER" --password-stdin
-                    docker push $IMAGE_BACKEND
-                    docker push $IMAGE_FRONTEND
-                    docker logout
-                    '''
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub') {
+                        frontendImage.push()
+                        frontendImage.push('latest')
+                        backendImage.push()
+                        backendImage.push('latest')
+                    }
                 }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig-file', variable: 'KUBECONFIG')]) {
+                echo "🚀 Deploying all services to Kubernetes..."
+                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
                     sh '''
-                    echo "Deploying to Kubernetes..."
-                    kubectl --kubeconfig=$KUBECONFIG apply -f k8s/mongodb-deployment.yaml
-                    kubectl --kubeconfig=$KUBECONFIG apply -f k8s/mongodb-service.yaml
-                    kubectl --kubeconfig=$KUBECONFIG apply -f k8s/backend-deployment.yaml
-                    kubectl --kubeconfig=$KUBECONFIG apply -f k8s/backend-service.yaml
-                    kubectl --kubeconfig=$KUBECONFIG apply -f k8s/frontend-deployment.yaml
-                    kubectl --kubeconfig=$KUBECONFIG apply -f k8s/frontend-service.yaml
+                        export KUBECONFIG=$KUBECONFIG_FILE
+                        kubectl apply -f k8s/mongodb-deployment.yaml
+                        kubectl apply -f k8s/mongodb-service.yaml
+                        kubectl apply -f k8s/backend-deployment.yaml
+                        kubectl apply -f k8s/backend-service.yaml
+                        kubectl apply -f k8s/frontend-deployment.yaml
+                        kubectl apply -f k8s/frontend-service.yaml
+
+                        echo "✅ Deployment Complete. Current Pods:"
+                        kubectl get pods -o wide
                     '''
                 }
             }
@@ -57,10 +62,13 @@ pipeline {
 
     post {
         success {
-            echo "✅ Deployment successful!"
+            echo "🎉 CI/CD pipeline executed successfully!"
         }
         failure {
-            echo "❌ Pipeline failed. Please check the logs."
+            echo "❌ CI/CD pipeline failed. Check logs."
+        }
+        always {
+            echo "🏁 Pipeline completed (success or fail)."
         }
     }
 }
