@@ -11,6 +11,14 @@ client = MongoClient(MONGO_URI)
 db = client["date_records_db"]
 collection = db["dates"]
 
+@app.route("/health", methods=["GET"])
+def health_check():
+    try:
+        client.admin.command('ping')
+        return jsonify({"status": "healthy"}), 200
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "error": str(e)}), 500
+        
 @app.route("/save", methods=["POST"])
 def save_data():
     try:
