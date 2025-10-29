@@ -1,23 +1,38 @@
-version: '3.9'
+version: "3.9"
 
 services:
   frontend:
-    build: ./frontend
-    ports:
-      - "8080:8080"
-    environment:
-      - BACKEND_URL=http://backend:5000
+    image: sham9394/frontend:latest
     depends_on:
       - backend
+    ports:
+      - "80:80"
+    networks:
+      - app-network
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
 
   backend:
-    build: ./backend
+    image: sham9394/backend:latest
+    depends_on:
+      - mongodb
     ports:
       - "5000:5000"
     environment:
-      - MONGO_URI=mongodb://mongodb:27017/
-    depends_on:
-      - mongodb
+      - MONGO_URL=mongodb://mongodb:27017/mydatabase
+    networks:
+      - app-network
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   mongodb:
     image: mongo:6
@@ -26,7 +41,21 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    networks:
+      - app-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
 volumes:
   mongo_data:
 
+networks:
+  app-network:
+    driver: overlay
