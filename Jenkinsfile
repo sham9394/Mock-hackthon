@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'docker-agent' }   // 👈 your Jenkins agent label here
+    agent { label 'DK-slave' }   // 👈 Jenkins agent label
 
     environment {
         FRONT_IMAGE = "sham9394/frontend"
@@ -7,6 +7,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout Code') {
             steps {
                 echo "📥 Cloning code from GitHub..."
@@ -44,16 +45,34 @@ pipeline {
                 echo "🚀 Deploying all services to Kubernetes..."
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
                     sh '''
+                        set -e
                         export KUBECONFIG=$KUBECONFIG_FILE
-                        kubectl apply -f k8s/mongodb-deployment.yaml
-                        kubectl apply -f k8s/mongodb-service.yaml
-                        kubectl apply -f k8s/backend-deployment.yaml
-                        kubectl apply -f k8s/backend-service.yaml
-                        kubectl apply -f k8s/frontend-deployment.yaml
-                        kubectl apply -f k8s/frontend-service.yaml
 
-                        echo "✅ Deployment Complete. Current Pods:"
-                        kubectl get pods -o wide
+                        # Ensure Jenkins SSH environment is ready
+                        mkdir -p ~/.ssh
+                        chmod 700 ~/.ssh
+
+                        # Automatically trust remote host
+                        ssh-keyscan -H 13.233.194.223 >> ~/.ssh/known_hosts
+                        chmod 644 ~/.ssh/known_hosts
+
+                        echo "🔗 Testing SSH connection to Kubernetes master..."
+                        ssh -o StrictHostKeyChecking=no root@13.233.194.223 "hostname && echo '✅ SSH Connection successful!'"
+
+                        echo "📦 Starting Kubernetes deployment on remote server..."
+
+                        ssh -o StrictHostKeyChecking=no root@13.233.194.223 "
+                            cd /home/root/workspace/Automated_ETE_CICD_pipeline && \
+                            export KUBECONFIG=/etc/kubernetes/admin.conf && \
+                            kubectl apply -f k8s/mongodb-deployment.yaml && \
+                            kubectl apply -f k8s/mongodb-service.yaml && \
+                            kubectl apply -f k8s/backend-deployment.yaml && \
+                            kubectl apply -f k8s/backend-service.yaml && \
+                            kubectl apply -f k8s/frontend-deployment.yaml && \
+                            kubectl apply -f k8s/frontend-service.yaml && \
+                            echo '✅ Deployment Complete. Current Pods:' && \
+                            kubectl get pods -o wide
+                        "
                     '''
                 }
             }
